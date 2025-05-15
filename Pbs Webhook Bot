@@ -7,7 +7,7 @@ import os
 BOT_TOKEN = "7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA"  # <-- Telegram bot tokeningizni shu yerga qo'ying
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = "supersecret"
-WEBHOOK_URL = f"https://https://allcargo.onrender.com"  # <-- bu yerga Render link qo'yiladi
+WEBHOOK_URL = f"https://allcargo.onrender.com"  # <-- bu yerga Render link qo'yiladi
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()

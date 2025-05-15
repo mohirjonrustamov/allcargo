@@ -6,13 +6,17 @@ import random
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import Command, Filter
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 from datetime import datetime, timedelta
 
-# Bot sozlamalari
-TOKEN = "7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA"  # Bot tokeningizni almashtiring
+TOKEN = "7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA"
 ADMIN_CODE = "Q1w2e3r4+"
 DATA_FILE = "bot_data.json"
 CHANNEL_ID = "@crm_tekshiruv"
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_SECRET = "supersecret"
+WEBHOOK_URL = f"https://allcargo.onrender.com{WEBHOOK_PATH}"
 
 bot = Bot(token=TOKEN, parse_mode="HTML")
 dp = Dispatcher()
@@ -883,13 +887,29 @@ async def reset_daily_users():
         save_data()
         logger.info(f"Kunlik foydalanuvchilar {today} uchun yangilandi.")
 
-# Botni ishga tushirish
-async def main():
+async def on_startup(app: web.Application):
     load_data()
     dp.include_router(router)
     logging.basicConfig(level=logging.INFO)
     asyncio.create_task(reset_daily_users())
-    await dp.start_polling(bot)
+    await bot.set_webhook(WEBHOOK_URL, secret_token=WEBHOOK_SECRET)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+async def on_shutdown(app: web.Application):
+    await bot.delete_webhook()
+
+async def main():
+    app = web.Application()
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+
+    SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=WEBHOOK_SECRET).register(app, path=WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 8080)))
+    await site.start()
+
+    print("Bot ishga tushdi...")
+    while True:
+        await asyncio.sleep(3600)

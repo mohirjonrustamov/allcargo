@@ -9,7 +9,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 from datetime import datetime, timedelta
 
 # Bot sozlamalari
-TOKEN = "7995355432:AAGedPytKGfeXDVThQdJH6kx1pfLyJ7YjsQ"  # Bot tokeningizni almashtiring
+TOKEN = "7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA"  # Bot tokeningizni almashtiring
 ADMIN_CODE = "Q1w2e3r4+"
 DATA_FILE = "bot_data.json"
 CHANNEL_ID = "@crm_tekshiruv"

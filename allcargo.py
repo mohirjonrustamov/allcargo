@@ -2,11 +2,13 @@ import asyncio
 import logging
 import json
 import os
-from aiogram import Bot, Dispatcher, types, F
+import random
+from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import Command, Filter
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime, timedelta
 
+# Bot sozlamalari
 TOKEN = "7995355432:AAGedPytKGfeXDVThQdJH6kx1pfLyJ7YjsQ"  # Bot tokeningizni almashtiring
 ADMIN_CODE = "Q1w2e3r4+"
 DATA_FILE = "bot_data.json"
@@ -14,64 +16,73 @@ CHANNEL_ID = "@crm_tekshiruv"
 
 bot = Bot(token=TOKEN, parse_mode="HTML")
 dp = Dispatcher()
+router = Router()
 
+# Global o'zgaruvchilar
 user_lang = {}
 user_data = {}
 users = set()
 blocked_users = set()
 daily_users = {}
 admin_state = {}
+verification_codes = {}
+registered_users = {}
+user_orders = {}
 logger = logging.getLogger(__name__)
 
-# Ma’lumotlarni fayldan yuklash
+# Ma'lumotlarni fayldan yuklash
 def load_data():
+    global users, blocked_users, daily_users, registered_users, user_orders
     if os.path.exists(DATA_FILE):
         try:
-            with open(DATA_FILE, "r") as f:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 users = set(data.get("users", []))
                 blocked_users = set(data.get("blocked_users", []))
                 daily_users_raw = data.get("daily_users", {})
                 daily_users = {key: set(value) for key, value in daily_users_raw.items()}
-                return users, blocked_users, daily_users
+                registered_users = data.get("registered_users", {})
+                user_orders = data.get("user_orders", {})
         except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Error loading bot_data.json: {e}. Creating a new file.")
+            logger.error(f"Ma'lumotlarni yuklashda xatolik: {e}. Yangi fayl yaratilmoqda.")
             os.remove(DATA_FILE)
-    return set(), set(), {}
+            users, blocked_users, daily_users, registered_users, user_orders = set(), set(), {}, {}, {}
+    else:
+        users, blocked_users, daily_users, registered_users, user_orders = set(), set(), {}, {}, {}
 
-# Ma’lumotlarni faylga saqlash
-def save_data(users, blocked_users, daily_users):
+# Ma'lumotlarni faylga saqlash
+def save_data():
     daily_users_serializable = {key: list(value) for key, value in daily_users.items()}
-    with open(DATA_FILE, "w") as f:
-        json.dump({
-            "users": list(users),
-            "blocked_users": list(blocked_users),
-            "daily_users": daily_users_serializable
-        }, f, indent=4)
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "users": list(users),
+                "blocked_users": list(blocked_users),
+                "daily_users": daily_users_serializable,
+                "registered_users": registered_users,
+                "user_orders": user_orders
+            }, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Ma'lumotlarni saqlashda xatolik: {e}")
 
-# Bot ishga tushganda ma’lumotlarni yuklash
-users, blocked_users, daily_users = load_data()
-
+# Tarjimalar
 translations = {
     "uz": {
         "lang_name": "🇺🇿 O'zbekcha",
         "start": "🌐 Iltimos, tilni tanlang:",
         "welcome": "Assalomu alaykum! 👋\n\nSiz PBS IMPEX kompaniyasining rasmiy Telegram botidasiz. 🌍\n\nBiz yuk tashish va logistika xizmatlarini Markaziy Osiyo hamda xalqaro yo‘nalishlarda taqdim etamiz. ✈️🚛🚢🚂\n\n📦 Buyurtma berish yoki xizmatlar bilan tanishish uchun quyidagi menyudan foydalaning. 👇",
-        "menu": ["📦 Buyurtma berish", "📞 Operator", "🛠 Xizmatlar", "🌍 Tilni o‘zgartirish", "👨‍💼 Admin paneli"],
+        "menu": ["📦 Buyurtma berish", "📞 Operator", "🛠 Xizmatlar", "🌍 Tilni o‘zgartirish", "👨‍💼 Admin paneli", "👤 Foydalanuvchi profili"],
+        "profile_menu": ["👤 Mening ma'lumotlarim", "📋 Mening buyurtmalarim", "🏠 Bosh sahifa"],
         "services": "🛠 Xizmatlar",
         "admin_menu": ["📊 Statistika", "📢 Post", "🏠 Bosh sahifa"],
         "order_text": "📋 Buyurtma uchun quyidagi ma'lumotlarni kiriting:",
+        "initial_questions": ["1️⃣ Ismingiz yoki familiyangiz?", "2️⃣ Telefon raqamingiz?"],
+        "verification_code_sent": "Telefon raqamingizga 6 xonali tasdiqlash kodi jo‘natildi. Iltimos, kodni kiriting:",
+        "verification_success": "✅ Tasdiqlash muvaffaqiyatli! Endi botdan foydalanishingiz mumkin.",
+        "verification_failed": "❌ Kod noto‘g‘ri! Qayta kiriting:",
         "questions": [
-            "1️⃣ Ismingiz yoki kompaniya nomi?",
-            "2️⃣ Telefon raqamingiz?",
-            "3️⃣ Yuk nomi?",
-            "4️⃣ Tashish usuli?",
-            "5️⃣ TIF TN kodi?",
-            "6️⃣ Yuk qaysi bojxona postiga keladi?",
-            "7️⃣ Yuk jo‘natish manzili?",
-            "8️⃣ Yukni qabul qilish manzili?",
-            "9️⃣ Yuk og‘irligi (kg)?",
-            "10️⃣ Yuk hajmi (kub)?"
+            "3️⃣ Yuk nomi?", "4️⃣ Tashish usuli?", "5️⃣ TIF TN kodi?", "6️⃣ Yuk qaysi bojxona postiga keladi?",
+            "7️⃣ Yuk jo‘natish manzili?", "8️⃣ Yukni qabul qilish manzili?", "9️⃣ Yuk og‘irligi (kg)?", "10️⃣ Yuk hajmi (kub)?"
         ],
         "transport_options": ["Avto", "Avia", "Temir yo‘l", "Dengiz", "Multimodal"],
         "customs_posts": ["Toshkent", "Andijon", "Farg‘ona", "Samarqand", "Boshqa"],
@@ -90,27 +101,27 @@ translations = {
         "stats": "📊 Statistika:\n1. Umumiy foydalanuvchilar soni: {total}\n2. Botni bloklaganlar soni: {blocked}\n3. Kunlik foydalanuvchilar soni: {daily}",
         "post_prompt": "📢 Post yozing (matn, rasm yoki video):",
         "post_confirm": "📢 Yuboriladigan post:\n\n{post}\n\nTasdiqlaysizmi?",
-        "post_sent": "✅ Post {count} foydalanuvchiga yuborildi!"
+        "post_sent": "✅ Post {count} foydalanuvchiga yuborildi!",
+        "my_info": "👤 Sizning ma'lumotlaringiz:\nIsm: {name}\nTelefon: {phone}",
+        "my_orders": "📋 Sizning buyurtmalaringiz:\n{orders}",
+        "no_orders": "📭 Hozircha buyurtmalaringiz yo‘q."
     },
     "ru": {
         "lang_name": "🇷🇺 Русский",
         "start": "🌐 Пожалуйста, выберите язык:",
         "welcome": "Здравствуйте! 👋\n\nВы находитесь в официальном Telegram-боте компании PBS IMPEX. 🌍\n\nМы предоставляем услуги по перевозке и логистике в Центральной Азии и по всему миру. ✈️🚛🚢🚂\n\n📦 Для оформления заказа или получения информации воспользуйтесь меню ниже. 👇",
-        "menu": ["📦 Сделать заказ", "📞 Оператор", "🛠 Услуги", "🌍 Сменить язык", "👨‍💼 Админ-панель"],
+        "menu": ["📦 Сделать заказ", "📞 Оператор", "🛠 Услуги", "🌍 Сменить язык", "👨‍💼 Админ-панель", "👤 Профиль пользователя"],
+        "profile_menu": ["👤 Моя информация", "📋 Мои заказы", "🏠 Главное меню"],
         "services": "🛠 Услуги",
         "admin_menu": ["📊 Статистика", "📢 Пост", "🏠 Главное меню"],
         "order_text": "📋 Пожалуйста, введите данные для заказа:",
+        "initial_questions": ["1️⃣ Ваше имя или фамилия?", "2️⃣ Ваш номер телефона?"],
+        "verification_code_sent": "На ваш номер телефона отправлен 6-значный код подтверждения. Введите код:",
+        "verification_success": "✅ Подтверждение успешно! Теперь вы можете использовать бота.",
+        "verification_failed": "❌ Неверный код! Повторите ввод:",
         "questions": [
-            "1️⃣ Ваше имя или название компании?",
-            "2️⃣ Ваш номер телефона?",
-            "3️⃣ Название груза?",
-            "4️⃣ Способ доставки?",
-            "5️⃣ Код ТН ВЭД?",
-            "6️⃣ На какой таможенный пост прибудет груз?",
-            "7️⃣ Адрес отправления?",
-            "8️⃣ Адрес получения?",
-            "9️⃣ Вес груза (кг)?",
-            "10️⃣ Объем груза (м³)?"
+            "3️⃣ Название груза?", "4️⃣ Способ доставки?", "5️⃣ Код ТН ВЭД?", "6️⃣ На какой таможенный пост прибудет груз?",
+            "7️⃣ Адрес отправления?", "8️⃣ Адрес получения?", "9️⃣ Вес груза (кг)?", "10️⃣ Объем груза (м³)?"
         ],
         "transport_options": ["Авто", "Авиа", "Ж/д", "Морской", "Мультимодальный"],
         "customs_posts": ["Ташкент", "Андижан", "Фергана", "Самарканд", "Другое"],
@@ -129,27 +140,27 @@ translations = {
         "stats": "📊 Статистика:\n1. Общее число пользователей: {total}\n2. Число заблокировавших бота: {blocked}\n3. Число пользователей за день: {daily}",
         "post_prompt": "📢 Напишите пост (текст, фото или видео):",
         "post_confirm": "📢 Пост для отправки:\n\n{post}\n\nПодтверждаете?",
-        "post_sent": "✅ Пост отправлен {count} пользователям!"
+        "post_sent": "✅ Пост отправлен {count} пользователям!",
+        "my_info": "👤 Ваша информация:\nИмя: {name}\nТелефон: {phone}",
+        "my_orders": "📋 Ваши заказы:\n{orders}",
+        "no_orders": "📭 Пока у вас нет заказов."
     },
     "en": {
         "lang_name": "🇬🇧 English",
         "start": "🌐 Please select a language:",
         "welcome": "Hello! 👋\n\nYou are in the official Telegram bot of PBS IMPEX. 🌍\n\nWe provide freight and logistics services in Central Asia and internationally. ✈️🚛🚢🚂\n\n📦 To place an order or view services, use the menu below. 👇",
-        "menu": ["📦 New Order", "📞 Contact Operator", "🛠 Services", "🌍 Change Language", "👨‍💼 Admin Panel"],
+        "menu": ["📦 New Order", "📞 Contact Operator", "🛠 Services", "🌍 Change Language", "👨‍💼 Admin Panel", "👤 User Profile"],
+        "profile_menu": ["👤 My Info", "📋 My Orders", "🏠 Home"],
         "services": "🛠 Services",
         "admin_menu": ["📊 Statistics", "📢 Post", "🏠 Home"],
         "order_text": "📋 Please enter the order details:",
+        "initial_questions": ["1️⃣ Your name or surname?", "2️⃣ Your phone number?"],
+        "verification_code_sent": "A 6-digit verification code has been sent to your phone number. Please enter the code:",
+        "verification_success": "✅ Verification successful! You can now use the bot.",
+        "verification_failed": "❌ Incorrect code! Please try again:",
         "questions": [
-            "1️⃣ Your name or company name?",
-            "2️⃣ Your phone number?",
-            "3️⃣ Cargo name?",
-            "4️⃣ Shipping method?",
-            "5️⃣ HS Code?",
-            "6️⃣ Which customs post will receive the cargo?",
-            "7️⃣ Pickup address?",
-            "8️⃣ Delivery address?",
-            "9️⃣ Cargo weight (kg)?",
-            "10️⃣ Cargo volume (m³)?"
+            "3️⃣ Cargo name?", "4️⃣ Shipping method?", "5️⃣ HS Code?", "6️⃣ Which customs post will receive the cargo?",
+            "7️⃣ Pickup address?", "8️⃣ Delivery address?", "9️⃣ Cargo weight (kg)?", "10️⃣ Cargo volume (m³)?"
         ],
         "transport_options": ["Auto", "Air", "Rail", "Sea", "Multimodal"],
         "customs_posts": ["Tashkent", "Andijan", "Fergana", "Samarkand", "Other"],
@@ -168,7 +179,10 @@ translations = {
         "stats": "📊 Statistics:\n1. Total users: {total}\n2. Users who blocked the bot: {blocked}\n3. Daily users: {daily}",
         "post_prompt": "📢 Write a post (text, photo, or video):",
         "post_confirm": "📢 Post to send:\n\n{post}\n\nConfirm?",
-        "post_sent": "✅ Post sent to {count} users!"
+        "post_sent": "✅ Post sent to {count} users!",
+        "my_info": "👤 Your info:\nName: {name}\nPhone: {phone}",
+        "my_orders": "📋 Your orders:\n{orders}",
+        "no_orders": "📭 You have no orders yet."
     }
 }
 
@@ -181,17 +195,25 @@ def get_language_menu():
 
 def get_main_menu(lang):
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=btn)] for btn in translations[lang]["menu"]], resize_keyboard=True
+        keyboard=[[KeyboardButton(text=btn)] for btn in translations[lang]["menu"]],
+        resize_keyboard=True
+    )
+
+def get_profile_menu(lang):
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=btn)] for btn in translations[lang]["profile_menu"]],
+        resize_keyboard=True
     )
 
 def get_order_nav(lang):
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=translations[lang]["back"]), KeyboardButton(text=translations[lang]["home"])]], resize_keyboard=True
+        keyboard=[[KeyboardButton(text=translations[lang]["back"]), KeyboardButton(text=translations[lang]["home"])]],
+        resize_keyboard=True
     )
 
 def get_admin_menu(lang):
     return ReplyKeyboardMarkup(
-        keyboard=[
+        keyboard=[ 
             [KeyboardButton(text=translations[lang]["admin_menu"][0])],
             [KeyboardButton(text=translations[lang]["admin_menu"][1])],
             [KeyboardButton(text=translations[lang]["admin_menu"][2])],
@@ -210,23 +232,20 @@ def get_customs_post_buttons(lang):
         inline_keyboard=[[InlineKeyboardButton(text=opt, callback_data=f"customs:{opt}")] for opt in translations[lang]["customs_posts"]]
     )
 
-@dp.callback_query(F.data.startswith("customs:"))
-async def handle_customs_post_choice(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    lang = user_lang.get(user_id, "uz")
-    customs_post = callback.data.split(":")[1]
-    question = translations[lang]["questions"][5]  # 6-savol
-    user_data[user_id]["answers"][question] = customs_post
-    user_data[user_id]["step"] += 1
-    await callback.message.delete()
-    await ask_question(user_id)
-
 def get_confirm_buttons(lang):
     return InlineKeyboardMarkup(
         inline_keyboard=[[
             InlineKeyboardButton(text=translations[lang]["confirm"], callback_data="confirm_order"),
             InlineKeyboardButton(text=translations[lang]["retry"], callback_data="retry_order")
         ]]
+    )
+
+def get_profile_confirm_buttons(lang):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Tasdiqlash" if lang == "uz" else "✅ Подтвердить" if lang == "ru" else "✅ Confirm", callback_data="confirm_profile")],
+            [InlineKeyboardButton(text="✏️ O'zgartirish" if lang == "uz" else "✏️ Изменить" if lang == "ru" else "✏️ Edit", callback_data="edit_profile")]
+        ]
     )
 
 def get_post_confirm_buttons(lang):
@@ -263,64 +282,147 @@ def get_services_menu(lang):
     }
     return ReplyKeyboardMarkup(keyboard=services_menu[lang], resize_keyboard=True)
 
-@dp.message(Command("start"))
-async def start(message: types.Message):
-    user_id = message.from_user.id
-    today = datetime.now().date().isoformat()
+# Tasdiqlash kodi generatsiyasi
+def generate_verification_code():
+    return str(random.randint(100000, 999999))
 
+# Start komandasi
+@router.message(Command("start"))
+async def start_handler(message: types.Message):
+    user_id = str(message.from_user.id)
+    today = datetime.now().date().isoformat()
     users.add(user_id)
     if today not in daily_users:
         daily_users[today] = set()
     daily_users[today].add(user_id)
-    save_data(users, blocked_users, daily_users)
+    save_data()
+    logger.info(f"Foydalanuvchi {user_id} botni boshladi.")
+    if user_id in registered_users:
+        lang = user_lang.get(user_id, "uz")
+        await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
+    else:
+        await message.answer(translations["uz"]["start"], reply_markup=get_language_menu())
 
-    logger.info(f"Foydalanuvchi {user_id} botni boshladi. Umumiy foydalanuvchilar: {len(users)}, Kunlik: {len(daily_users[today])}")
-    await message.answer(translations["uz"]["start"], reply_markup=get_language_menu())
+# Til tanlash
+@router.message(F.text.in_(["🇺🇿 O'zbekcha", "🇷🇺 Русский", "🇬🇧 English"]))
+async def select_language(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = "uz" if message.text == "🇺🇿 O'zbekcha" else "ru" if message.text == "🇷🇺 Русский" else "en"
+    user_lang[user_id] = lang
+    if user_id not in registered_users:
+        user_data[user_id] = {"initial_step": 0, "initial_answers": {}}
+        await ask_initial_question(user_id)
+    else:
+        await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
+
+# Profil ma'lumotlari
+@router.message(F.text.in_(["👤 Mening ma'lumotlarim", "👤 Моя информация", "👤 My Info"]))
+async def profile_info(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    if user_id not in registered_users:
+        await message.answer("❌ Siz hali ro‘yxatdan o‘tmagansiz!", reply_markup=get_main_menu(lang))
+        return
+    info = registered_users[user_id]
+    initial_questions = translations[lang]["initial_questions"]
+    name = info.get(initial_questions[0], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
+    phone = info.get(initial_questions[1], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
+    text = translations[lang]["my_info"].format(name=name, phone=phone)
+    await message.answer(text, reply_markup=get_profile_confirm_buttons(lang))
+
+# Buyurtmalar ro'yxati
+@router.message(F.text.in_(["📋 Mening buyurtmalarim", "📋 Мои заказы", "📋 My Orders"]))
+async def my_orders(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    if user_id not in user_orders or not user_orders[user_id]:
+        await message.answer(translations[lang]["no_orders"], reply_markup=get_profile_menu(lang))
+    else:
+        orders_text = "\n\n".join(user_orders[user_id])
+        await message.answer(translations[lang]["my_orders"].format(orders=orders_text), reply_markup=get_profile_menu(lang))
+
+# Admin kodini kutish uchun filter
+class IsAwaitingAdminCode(Filter):
+    async def __call__(self, message: types.Message) -> bool:
+        user_id = str(message.from_user.id)
+        return admin_state.get(user_id, {}).get("awaiting_code", False)
 
 # Admin post filtiri
 class IsAwaitingPost(Filter):
     async def __call__(self, message: types.Message) -> bool:
-        user_id = message.from_user.id
+        user_id = str(message.from_user.id)
         return admin_state.get(user_id, {}).get("awaiting_post", False)
 
-@dp.message(IsAwaitingPost(), F.text)
+@router.message(IsAwaitingPost(), F.text)
 async def handle_admin_post_text(message: types.Message):
-    user_id = message.from_user.id
+    user_id = str(message.from_user.id)
     lang = user_lang.get(user_id, "uz")
-    logger.info(f"Admin post yozmoqda: {message.text}")
-
     if message.text == translations[lang]["back"]:
         admin_state[user_id] = {"in_admin": True}
         await message.answer(translations[lang]["admin_welcome"], reply_markup=get_admin_menu(lang))
     else:
         admin_state[user_id]["post_content"]["text"] = message.text
-        logger.info(f"Post mazmuni yangilandi: {admin_state[user_id]['post_content']}")
         await show_post_preview(user_id, message)
 
-# Til tanlash va dastlabki savollar
+# Admin kodini qabul qilish
+@router.message(IsAwaitingAdminCode(), F.text)
+async def handle_admin_code(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    if message.text == ADMIN_CODE:
+        admin_state[user_id] = {"in_admin": True}
+        await message.answer(translations[lang]["admin_welcome"], reply_markup=get_admin_menu(lang))
+    else:
+        await message.answer(translations[lang]["not_admin"], reply_markup=get_main_menu(lang))
+    admin_state[user_id].pop("awaiting_code", None)
+
+# Admin menyusi
+@router.message(F.text.in_(["📊 Statistika", "📢 Post"]))
+async def handle_admin_menu(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    if user_id not in admin_state or not admin_state[user_id].get("in_admin"):
+        await message.answer(translations[lang]["not_admin"], reply_markup=get_main_menu(lang))
+        return
+    
+    if message.text == translations[lang]["admin_menu"][0]:  # Statistika
+        total = len(users)
+        blocked = len(blocked_users)
+        today = datetime.now().date().isoformat()
+        daily = len(daily_users.get(today, set()))
+        stats_text = translations[lang]["stats"].format(total=total, blocked=blocked, daily=daily)
+        await message.answer(stats_text, reply_markup=get_admin_menu(lang))
+    
+    elif message.text == translations[lang]["admin_menu"][1]:  # Post
+        admin_state[user_id] = {"in_admin": True, "awaiting_post": True, "post_content": {"text": None, "photo": None, "video": None}}
+        await message.answer(translations[lang]["post_prompt"], reply_markup=get_order_nav(lang))
+        
+    elif message.text == translations[lang]["admin_menu"][2]:  # Bosh sahifa
+        admin_state.pop(user_id, None)
+        await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
+        
+# Dastlabki savollar va tasdiqlash
 async def ask_initial_question(user_id):
     lang = user_lang.get(user_id, "uz")
     step = user_data[user_id]["initial_step"]
-    initial_questions = [
-        "Ismingiz yoki familiyangiz?",
-        "Telefon raqamingiz?"
-    ]
-    if lang == "ru":
-        initial_questions = ["Ваше имя или фамилия?", "Ваш номер телефона?"]
-    elif lang == "en":
-        initial_questions = ["Your name or surname?", "Your phone number?"]
-
+    initial_questions = translations[lang]["initial_questions"]
     if step < len(initial_questions):
         await bot.send_message(user_id, initial_questions[step], reply_markup=get_order_nav(lang))
+    elif step == 2:
+        code = generate_verification_code()
+        verification_codes[user_id] = code
+        phone = user_data[user_id]["initial_answers"][initial_questions[1]]
+        await bot.send_message(user_id, f"{translations[lang]['verification_code_sent']}\nKod (test uchun): {code}", reply_markup=get_order_nav(lang))
     else:
+        registered_users[user_id] = user_data[user_id]["initial_answers"]
+        save_data()
         await bot.send_message(user_id, translations[lang]["welcome"], reply_markup=get_main_menu(lang))
         user_data.pop(user_id)
 
 async def handle_initial_answer(message: types.Message):
-    user_id = message.from_user.id
+    user_id = str(message.from_user.id)
     lang = user_lang.get(user_id, "uz")
     text = message.text
-
     if text == translations[lang]["back"]:
         if user_data[user_id]["initial_step"] > 0:
             user_data[user_id]["initial_step"] -= 1
@@ -329,17 +431,12 @@ async def handle_initial_answer(message: types.Message):
             user_data.pop(user_id, None)
             await message.answer(translations[lang]["start"], reply_markup=get_language_menu())
         return
-
     if text == translations[lang]["home"]:
         user_data.pop(user_id, None)
         await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
         return
-
     step = user_data[user_id]["initial_step"]
-    initial_questions = ["Ismingiz yoki familiyangiz?", "Telefon raqamingiz?"] if lang == "uz" else \
-                       ["Ваше имя или фамилия?", "Ваш номер телефона?"] if lang == "ru" else \
-                       ["Your name or surname?", "Your phone number?"]
-
+    initial_questions = translations[lang]["initial_questions"]
     if step == 1:  # Telefon raqami
         cleaned_text = text.replace("+", "").replace(" ", "")
         if not cleaned_text.isdigit():
@@ -348,62 +445,63 @@ async def handle_initial_answer(message: types.Message):
         if len(cleaned_text) not in [9, 12]:
             await message.answer(translations[lang]["error_phone_length"])
             return
+    if step < 2:
+        user_data[user_id]["initial_answers"][initial_questions[step]] = text
+        user_data[user_id]["initial_step"] += 1
+        await ask_initial_question(user_id)
+    elif step == 2:
+        if text == verification_codes.get(user_id):
+            await message.answer(translations[lang]["verification_success"], reply_markup=get_main_menu(lang))
+            user_data[user_id]["initial_step"] += 1
+            await ask_initial_question(user_id)
+            verification_codes.pop(user_id)
+        else:
+            await message.answer(translations[lang]["verification_failed"])
 
-    user_data[user_id]["initial_answers"][initial_questions[step]] = text
-    user_data[user_id]["initial_step"] += 1
-    await ask_initial_question(user_id)
-
-@dp.message(F.text)
+# Asosiy handler
+@router.message(F.text)
 async def handle_language_and_menu(message: types.Message):
-    user_id = message.from_user.id
+    user_id = str(message.from_user.id)
     lang = user_lang.get(user_id, "uz")
     logger.info(f"Foydalanuvchi {user_id} yubordi: {message.text}")
-
-    # Har qanday muloqotda foydalanuvchini bugungi faollar ro‘yxatiga qo‘shish
     today = datetime.now().date().isoformat()
     if today not in daily_users:
         daily_users[today] = set()
     daily_users[today].add(user_id)
-    save_data(users, blocked_users, daily_users)
+    save_data()
 
     if admin_state.get(user_id, {}).get("awaiting_post", False):
         return
 
-    # Til tanlash
-    for lang_code, data in translations.items():
-        if message.text == data["lang_name"]:
-            user_lang[user_id] = lang_code
-            user_data[user_id] = {"initial_step": 0, "initial_answers": {}}
-            await message.answer("Iltimos, ma'lumotlarni kiriting:", reply_markup=get_order_nav(lang_code))
-            await ask_initial_question(user_id)
-            return
-
-    # Dastlabki savollar
     if user_id in user_data and "initial_step" in user_data[user_id]:
         await handle_initial_answer(message)
         return
 
-    # Asosiy menyu logikasi
-    if message.text == translations[lang]["menu"][3]:
+    if message.text == translations[lang]["menu"][3]:  # Tilni o‘zgartirish
         await message.answer(translations[lang]["start"], reply_markup=get_language_menu())
         return
 
-    if message.text == translations[lang]["home"]:
+    if message.text == translations[lang]["home"]:  # "🏠 Bosh sahifa"
         admin_state.pop(user_id, None)
-        user_data.pop(user_id, None)
+        user_data.pop(user_id, None)  # Buyurtma jarayonini tozalash
         await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
         return
 
-    if message.text == translations[lang]["menu"][0]:
+    if message.text == translations[lang]["menu"][0]:  # Buyurtma berish
         user_data[user_id] = {"step": 0, "answers": {}}
+        if user_id in registered_users:
+            info = registered_users[user_id]
+            initial_questions = translations[lang]["initial_questions"]
+            user_data[user_id]["answers"][initial_questions[0]] = info.get(initial_questions[0], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
+            user_data[user_id]["answers"][initial_questions[1]] = info.get(initial_questions[1], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
         await message.answer(translations[lang]["order_text"], reply_markup=get_order_nav(lang))
         await ask_question(user_id)
         return
 
-    elif message.text == translations[lang]["menu"][1]:
+    elif message.text == translations[lang]["menu"][1]:  # Operator
         operator_info_translations = {
             "uz": """<b>«PBS IMPEX» XK</b>
-🏢 Manzil: Toshkent shahri, Nukus ko’chasi, 3 uy
+🏢 Manzil: Toshkent shahri, Nukus ko‘chasi, 3 uy
 📞 Telefon: +99871 2155638
 👨‍💼 Sale menedjer: Mohirjon Rustamov
 📱 +99891 166-75-36
@@ -427,50 +525,38 @@ async def handle_language_and_menu(message: types.Message):
         await message.answer(operator_info_translations[lang], reply_markup=get_main_menu(lang), parse_mode="HTML")
         return
 
-    elif message.text == translations[lang]["menu"][2]:
+    elif message.text == translations[lang]["menu"][2]:  # Xizmatlar
         await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
         return
 
-    elif message.text == translations[lang]["menu"][4]:
-        admin_state[user_id] = {"awaiting_code": True}
+    elif message.text == translations[lang]["menu"][4]:  # "👨‍💼 Admin paneli"
         await message.answer(translations[lang]["admin_code_prompt"], reply_markup=get_order_nav(lang))
+        admin_state[user_id] = {"awaiting_code": True}
         return
 
-    elif user_id in admin_state and admin_state[user_id].get("awaiting_code"):
-        if message.text == ADMIN_CODE:
-            admin_state[user_id] = {"in_admin": True}
-            await message.answer(translations[lang]["admin_welcome"], reply_markup=get_admin_menu(lang))
+    elif message.text == translations[lang]["menu"][5]:  # "👤 Foydalanuvchi profili"
+        await message.answer("👤 Profil menyusi", reply_markup=get_profile_menu(lang))
+        return
+
+    # Xizmatlar bo‘limidagi tugmalar
+    service_options = [
+        "🚛 Logistika", "🚛 Логистика", "🚛 Logistics",
+        "🧾 Ruxsatnomalar va bojxona xizmatlari", "🧾 Разрешения и таможенные услуги", "🧾 Permits and Customs Services",
+        "🏢 Ma’muriyatchilik ishlari", "🏢 Административные услуги", "🏢 Administrative Services",
+        "📄 Sertifikatsiya", "📄 Сертификация", "📄 Certification"
+    ]
+
+    if message.text == translations[lang]["back"]:  # "🔙 Orqaga"
+        # Xizmatlar bo‘limida bo‘lsa (get_order_nav klaviaturasi mavjud)
+        if message.reply_markup == get_order_nav(lang):
+            await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
+        # Buyurtma jarayonida bo‘lsa
+        elif user_id in user_data and "step" in user_data[user_id]:
+            await handle_order_answer(message)
+        # Aks holda bosh sahifaga
         else:
-            admin_state.pop(user_id, None)
-            await message.answer(translations[lang]["not_admin"], reply_markup=get_main_menu(lang))
-        return
-
-    elif user_id in admin_state and admin_state[user_id].get("in_admin"):
-        if message.text == translations[lang]["admin_menu"][0]:
-            today = datetime.now().date().isoformat()
-            stats_text = translations[lang]["stats"].format(
-                total=len(users),
-                blocked=len(blocked_users),
-                daily=len(daily_users.get(today, set()))
-            )
-            await message.answer(stats_text, reply_markup=get_admin_menu(lang))
-        elif message.text == translations[lang]["admin_menu"][1]:  # 455-qator shu yerda bo‘lishi kerak
-            admin_state[user_id] = {
-                "in_admin": True,
-                "awaiting_post": True,
-                "post_content": {"text": None, "photo": None, "video": None}
-            }
-            await message.answer(translations[lang]["post_prompt"], reply_markup=get_order_nav(lang))
-        elif message.text == translations[lang]["admin_menu"][2]:
-            admin_state.pop(user_id, None)
             await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
-        elif message.text == translations[lang]["back"]:
-            admin_state[user_id] = {"in_admin": True}
-            await message.answer(translations[lang]["admin_welcome"], reply_markup=get_admin_menu(lang))
         return
-
-    # Qolgan logika o‘zgarmaydi
-    # ...
 
     elif message.text in ["🚛 Logistika", "🚛 Логистика", "🚛 Logistics"]:
         logistics_text = {
@@ -598,37 +684,15 @@ async def handle_language_and_menu(message: types.Message):
         await message.answer(cert_text[lang], parse_mode="HTML", reply_markup=get_order_nav(lang))
         return
 
-    if user_id in user_data:
+    if user_id in user_data and "step" in user_data[user_id]:
         await handle_order_answer(message)
 
-@dp.message(F.photo)
-async def handle_photo(message: types.Message):
-    user_id = message.from_user.id
-    lang = user_lang.get(user_id, "uz")
-    if user_id in admin_state and admin_state[user_id].get("awaiting_post"):
-        admin_state[user_id]["post_content"]["photo"] = message.photo[-1].file_id
-        logger.info(f"Rasm qo‘shildi: {admin_state[user_id]['post_content']['photo']}")
-        await show_post_preview(user_id, message)
-    else:
-        await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
-
-@dp.message(F.video)
-async def handle_video(message: types.Message):
-    user_id = message.from_user.id
-    lang = user_lang.get(user_id, "uz")
-    if user_id in admin_state and admin_state[user_id].get("awaiting_post"):
-        admin_state[user_id]["post_content"]["video"] = message.video.file_id
-        logger.info(f"Video qo‘shildi: {admin_state[user_id]['post_content']['video']}")
-        await show_post_preview(user_id, message)
-    else:
-        await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
-
+# Buyurtma javobl neuropsychologicalari
 async def handle_order_answer(message: types.Message):
-    user_id = message.from_user.id
+    user_id = str(message.from_user.id)
     lang = user_lang.get(user_id, "uz")
     if user_id not in user_data or "step" not in user_data[user_id]:
         return
-
     text = message.text
     if text == translations[lang]["back"]:
         if user_data[user_id]["step"] > 0:
@@ -638,40 +702,23 @@ async def handle_order_answer(message: types.Message):
             user_data.pop(user_id, None)
             await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
         return
-
     if text == translations[lang]["home"]:
         user_data.pop(user_id, None)
         await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
         return
-
     step = user_data[user_id]["step"]
-    if step != 3 and step < len(translations[lang]["questions"]):  # Faqat 3-savol (Tashish usuli) inline
+    if step != 1 and step < len(translations[lang]["questions"]):
         question = translations[lang]["questions"][step]
-
-        if step == 1:  # Telefon raqami
-            cleaned_text = text.replace("+", "").replace(" ", "")
-            if not cleaned_text.isdigit():
-                await message.answer(translations[lang]["error_phone"])
+        if step in [6, 7]:
+            if not text.replace(".", "").isdigit():
+                await message.answer(translations[lang]["error_only_digits"])
                 return
-            if len(cleaned_text) not in [9, 12]:
-                await message.answer(translations[lang]["error_phone_length"])
-                return
-
-        elif step in [4, 8, 9]:  # TIF TN kodi, Yuk og‘irligi, Yuk hajmi
-            if step in [8, 9]:  # Og‘irlik va hajmda nuqta ruxsat etiladi
-                if not text.replace(".", "").isdigit():
-                    await message.answer(translations[lang]["error_only_digits"])
-                    return
-            elif step == 4:  # TIF TN kodi faqat raqam
-                if not text.isdigit():
-                    await message.answer(translations[lang]["error_only_digits"])
-                    return
-
-        elif step in [2, 6, 7]:  # Yuk nomi, Yuk jo‘natish manzili, Yuk qabul qilish manzili
-            if any(char.isdigit() for char in text):
-                await message.answer(translations[lang]["error_no_digits"])
-                return
-
+        elif step in [0, 4, 5] and any(char.isdigit() for char in text):
+            await message.answer(translations[lang]["error_no_digits"])
+            return
+        elif step == 2 and not text.isdigit():
+            await message.answer(translations[lang]["error_only_digits"])
+            return
         user_data[user_id]["answers"][question] = text
         user_data[user_id]["step"] += 1
         await ask_question(user_id)
@@ -679,7 +726,7 @@ async def handle_order_answer(message: types.Message):
 async def ask_question(user_id):
     lang = user_lang.get(user_id, "uz")
     step = user_data[user_id]["step"]
-    if step == 3:  # Tashish usuli
+    if step == 1:
         await bot.send_message(user_id, translations[lang]["questions"][step], reply_markup=get_transport_buttons(lang))
     elif step < len(translations[lang]["questions"]):
         await bot.send_message(user_id, translations[lang]["questions"][step], reply_markup=get_order_nav(lang))
@@ -688,91 +735,96 @@ async def ask_question(user_id):
 
 async def show_summary(user_id):
     lang = user_lang.get(user_id, "uz")
-    summary = f"📋 {translations[lang]['order_text']}\n\n"
+    summary = f"{translations[lang]['order_text']}\n\n"
+    info = registered_users.get(user_id, {})
+    name = info.get(translations[lang]["initial_questions"][0], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
+    phone = info.get(translations[lang]["initial_questions"][1], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
+    summary += f"Ism: {name}\nTelefon: {phone}\n"
     for q, a in user_data[user_id]["answers"].items():
-        summary += f"🔹 {q}: {a}\n"
+        summary += f"{q}: {a}\n"
     await bot.send_message(user_id, summary, reply_markup=get_confirm_buttons(lang))
 
 async def show_post_preview(user_id, message: types.Message):
     lang = user_lang.get(user_id, "uz")
     post_content = admin_state[user_id]["post_content"]
-    preview_text = translations[lang]["post_confirm"].format(post=post_content["text"] or "Matn yo‘q")
+    preview_text = translations[lang]["post_confirm"].format(post=post_content["text"] or "Matn yo‘q" if lang == "uz" else "Текст отсутствует" if lang == "ru" else "No text")
+    if post_content["photo"]:
+        await bot.send_photo(user_id, post_content["photo"], caption=post_content["text"] or "", reply_markup=get_post_confirm_buttons(lang))
+    elif post_content["video"]:
+        await bot.send_video(user_id, post_content["video"], caption=post_content["text"] or "", reply_markup=get_post_confirm_buttons(lang))
+    elif post_content["text"]:
+        await bot.send_message(user_id, preview_text, reply_markup=get_post_confirm_buttons(lang))
 
-    try:
-        if post_content["photo"]:
-            await bot.send_photo(user_id, post_content["photo"], caption=post_content["text"] or "", reply_markup=get_post_confirm_buttons(lang))
-        elif post_content["video"]:
-            await bot.send_video(user_id, post_content["video"], caption=post_content["text"] or "", reply_markup=get_post_confirm_buttons(lang))
-        elif post_content["text"]:
-            await bot.send_message(user_id, preview_text, reply_markup=get_post_confirm_buttons(lang))
-        else:
-            await bot.send_message(user_id, "❌ Hech qanday kontent kiritilmadi!", reply_markup=get_order_nav(lang))
-    except Exception as e:
-        logger.error(f"Post oldindan ko‘rishda xatolik: {e}")
-        await bot.send_message(user_id, "❌ Xatolik yuz berdi!", reply_markup=get_order_nav(lang))
-
-@dp.callback_query(F.data.startswith("transport:"))
+# Callback handlerlar
+@router.callback_query(F.data.startswith("transport:"))
 async def handle_transport_choice(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
+    user_id = str(callback.from_user.id)
     lang = user_lang.get(user_id, "uz")
     transport = callback.data.split(":")[1]
-    question = translations[lang]["questions"][3]
-    user_data[user_id]["answers"][question] = transport
+    user_data[user_id]["answers"][translations[lang]["questions"][1]] = transport
     user_data[user_id]["step"] += 1
     await callback.message.delete()
     await ask_question(user_id)
 
-@dp.callback_query(F.data == "retry_order")
+@router.callback_query(F.data.startswith("customs:"))
+async def handle_customs_post_choice(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    customs_post = callback.data.split(":")[1]
+    user_data[user_id]["answers"][translations[lang]["questions"][3]] = customs_post
+    user_data[user_id]["step"] += 1
+    await callback.message.delete()
+    await ask_question(user_id)
+
+@router.callback_query(F.data == "retry_order")
 async def retry_order(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
+    user_id = str(callback.from_user.id)
     lang = user_lang.get(user_id, "uz")
     user_data[user_id] = {"step": 0, "answers": {}}
     await callback.message.delete()
     await bot.send_message(user_id, translations[lang]["order_text"], reply_markup=get_order_nav(lang))
     await ask_question(user_id)
 
-@dp.callback_query(F.data == "confirm_order")
+@router.callback_query(F.data == "confirm_order")
 async def confirm_order(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
+    user_id = str(callback.from_user.id)
     lang = user_lang.get(user_id, "uz")
-
-    logger.info(f"Buyurtma tasdiqlash boshlandi: Foydalanuvchi ID {user_id}")
-
-    if user_id not in user_data or "answers" not in user_data[user_id]:
-        logger.warning(f"Foydalanuvchi ma'lumotlari topilmadi: {user_id}")
-        await callback.message.delete()
-        await callback.message.answer(translations[lang]["error"], reply_markup=get_main_menu(lang))
-        return
-
     answers = user_data[user_id]["answers"]
-    order_text = translations[lang]["received"] + "\n\n"
+    info = registered_users.get(user_id, {})
+    name = info.get(translations[lang]["initial_questions"][0], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
+    phone = info.get(translations[lang]["initial_questions"][1], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
+    order_text = translations[lang]["received"] + "\n\n" + f"Ism: {name}\nTelefon: {phone}\n"
     for question, answer in answers.items():
         order_text += f"{question}: {answer}\n"
-
+    if user_id not in user_orders:
+        user_orders[user_id] = []
+    user_orders[user_id].append(order_text)
+    save_data()
     await callback.message.delete()
     await callback.message.answer(order_text, reply_markup=get_main_menu(lang))
+    await bot.send_message(CHANNEL_ID, f"🔔 Yangi Buyurtma!\nFoydalanuvchi ID: {user_id}\n{order_text}")
 
-    logger.info(f"Kanalga xabar yuborishga urinish: CHANNEL_ID={CHANNEL_ID}")
-    try:
-        await bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=f"🔔 Yangi Buyurtma!\n\nFoydalanuvchi ID: {user_id}\n{order_text}",
-            parse_mode="HTML"
-        )
-        logger.info(f"Kanalga xabar muvaffaqiyatli yuborildi: Foydalanuvchi ID {user_id}")
-    except Exception as e:
-        logger.error(f"Kanalga xabar yuborishda xatolik: {e}")
+@router.callback_query(F.data == "confirm_profile")
+async def confirm_profile(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    await callback.message.delete()
+    await bot.send_message(user_id, translations[lang]["welcome"], reply_markup=get_main_menu(lang))
 
-    user_data.pop(user_id, None)
-    logger.info(f"Buyurtma tasdiqlash tugadi: Foydalanuvchi ID {user_id}")
+@router.callback_query(F.data == "edit_profile")
+async def edit_profile(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    user_data[user_id] = {"initial_step": 0, "initial_answers": {}}
+    await callback.message.delete()
+    await ask_initial_question(user_id)
 
-@dp.callback_query(F.data == "confirm_post")
+@router.callback_query(F.data == "confirm_post")
 async def confirm_post(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
+    user_id = str(callback.from_user.id)
     lang = user_lang.get(user_id, "uz")
     post_content = admin_state[user_id]["post_content"]
     sent_count = 0
-
     for uid in users:
         if uid not in blocked_users:
             try:
@@ -784,41 +836,59 @@ async def confirm_post(callback: types.CallbackQuery):
                     await bot.send_message(uid, post_content["text"])
                 sent_count += 1
                 await asyncio.sleep(0.1)
-            except Exception as e:
-                logger.error(f"Post yuborishda xatolik: {e}")
+            except Exception:
                 blocked_users.add(uid)
-                save_data(users, blocked_users, daily_users)
-
+                save_data()
     await callback.message.delete()
     await bot.send_message(user_id, translations[lang]["post_sent"].format(count=sent_count), reply_markup=get_admin_menu(lang))
     admin_state[user_id] = {"in_admin": True}
 
-@dp.callback_query(F.data == "retry_post")
+@router.callback_query(F.data == "retry_post")
 async def retry_post(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
+    user_id = str(callback.from_user.id)
     lang = user_lang.get(user_id, "uz")
-    admin_state[user_id] = {
-        "in_admin": True,
-        "awaiting_post": True,
-        "post_content": {"text": None, "photo": None, "video": None}
-    }
+    admin_state[user_id] = {"in_admin": True, "awaiting_post": True, "post_content": {"text": None, "photo": None, "video": None}}
     await callback.message.delete()
     await bot.send_message(user_id, translations[lang]["post_prompt"], reply_markup=get_order_nav(lang))
 
+# Foto va video handlerlar
+@router.message(F.photo)
+async def handle_photo(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    if user_id in admin_state and admin_state[user_id].get("awaiting_post"):
+        admin_state[user_id]["post_content"]["photo"] = message.photo[-1].file_id
+        await show_post_preview(user_id, message)
+    else:
+        await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
+
+@router.message(F.video)
+async def handle_video(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    if user_id in admin_state and admin_state[user_id].get("awaiting_post"):
+        admin_state[user_id]["post_content"]["video"] = message.video.file_id
+        await show_post_preview(user_id, message)
+    else:
+        await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
+
+# Kunlik foydalanuvchilarni yangilash
 async def reset_daily_users():
     while True:
         now = datetime.now()
         next_midnight = (now.replace(hour=23, minute=59, second=59, microsecond=999999) + timedelta(seconds=1))
         await asyncio.sleep((next_midnight - now).total_seconds())
         today = datetime.now().date().isoformat()
-        daily_users[today] = set()  # Yangi kun uchun bo‘sh ro‘yxat
-        save_data(users, blocked_users, daily_users)
+        daily_users[today] = set()
+        save_data()
         logger.info(f"Kunlik foydalanuvchilar {today} uchun yangilandi.")
 
-# Yangilangan `main` funksiyasi (777-779-qatorlar o‘rniga)
+# Botni ishga tushirish
 async def main():
+    load_data()
+    dp.include_router(router)
     logging.basicConfig(level=logging.INFO)
-    asyncio.create_task(reset_daily_users())  # Har kuni 00:00 da yangilash
+    asyncio.create_task(reset_daily_users())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

@@ -904,12 +904,13 @@ async def main():
 
     SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=WEBHOOK_SECRET).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
-    
+
     runner = web.AppRunner(app)
     await runner.setup()
-port = int(os.environ.get("PORT", 8080))
-site = web.TCPSite(runner, "0.0.0.0", port)
-await site.start()
+
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
 
     print("Bot ishga tushdi...")
     while True:

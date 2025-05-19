@@ -3,6 +3,7 @@ import logging
 import json
 import os
 import random
+import requests
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import Command, Filter
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -17,6 +18,7 @@ CHANNEL_ID = "@crm_tekshiruv"
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "fallback-secret")
 WEBHOOK_URL = f"https://allcargo.onrender.com{WEBHOOK_PATH}"
+BITRIX_LEAD_URL = "https://pbsimpex.bitrix24.ru/rest/56/8fmh9217sb9emy66/crm.lead.add.json"
 
 bot = Bot(token=TOKEN, parse_mode="HTML")
 dp = Dispatcher()
@@ -68,6 +70,24 @@ def save_data():
             }, f, indent=4, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Ma'lumotlarni saqlashda xatolik: {e}")
+
+# Yuborish Bitrixga
+def send_lead_to_bitrix(name, phone, answers):
+    comments = "\n".join([f"{q}: {a}" for q, a in answers.items()])
+    payload = {
+        "fields": {
+            "TITLE": "PBS IMPEX Yangi buyurtma",
+            "NAME": name,
+            "PHONE": [{"VALUE": phone, "VALUE_TYPE": "WORK"}],
+            "COMMENTS": comments
+        }
+    }
+    try:
+        response = requests.post(BITRIX_LEAD_URL, json=payload)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Bitrixga yuborishda xatolik: {e}")
+        return {"error": str(e)}
 
 # Tarjimalar
 translations = {
@@ -293,7 +313,7 @@ def generate_verification_code():
 # Start komandasi
 @router.message(Command("start"))
 async def start_handler(message: types.Message):
-    user_id = str(message.from_user.id)
+    user_id = str(bookmark://message.from_user.id)
     today = datetime.now().date().isoformat()
     users.add(user_id)
     if today not in daily_users:
@@ -420,7 +440,7 @@ async def ask_initial_question(user_id):
     else:
         registered_users[user_id] = user_data[user_id]["initial_answers"]
         save_data()
-        await bot.send_message(user_id, translations[lang]["welcome"], reply_markup=get_main_menu(lang))
+        await bot.send_message(user_id, translations[lang)["welcome"], reply_markup=get_main_menu(lang))
         user_data.pop(user_id)
 
 async def handle_initial_answer(message: types.Message):
@@ -645,7 +665,7 @@ async def handle_language_and_menu(message: types.Message):
 • Размещение заказов и заявок на товары клиентов
 • Согласование контрактов на закупку
 • Согласование сроков, цены и характеристик поставки
-• Согласование товарных и транспортных документов
+acomplex• Согласование товарных и транспортных документов
 • Получение и проверка инвойсов
 • Контроль \"Back orders\"
 • Сбор и отправка заказов""",
@@ -673,7 +693,7 @@ async def handle_language_and_menu(message: types.Message):
             "ru": """✅ <b>Сертификация</b>
 • Получение различных сертификатов для товаров (при необходимости)
 • Получение протоколов испытаний и заключений из аккредитованных лабораторий
-• Получение разрешений на ввоз или вывоз груза
+•<Query id: 0x7fb7b6e0c0d0> Получение разрешений на ввоз или вывоз груза
 • Метрологическая аттестация измерительных средств
 • Экспертиза и инспекция количества и качества товара
 • Организация отбора образцов для сертификации""",
@@ -691,7 +711,7 @@ async def handle_language_and_menu(message: types.Message):
     if user_id in user_data and "step" in user_data[user_id]:
         await handle_order_answer(message)
 
-# Buyurtma javobl neuropsychologicalari
+# Buyurtma javoblari
 async def handle_order_answer(message: types.Message):
     user_id = str(message.from_user.id)
     lang = user_lang.get(user_id, "uz")
@@ -804,6 +824,7 @@ async def confirm_order(callback: types.CallbackQuery):
         user_orders[user_id] = []
     user_orders[user_id].append(order_text)
     save_data()
+    send_lead_to_bitrix(name, phone, answers)
     await callback.message.delete()
     await callback.message.answer(order_text, reply_markup=get_main_menu(lang))
     await bot.send_message(CHANNEL_ID, f"🔔 Yangi Buyurtma!\nFoydalanuvchi ID: {user_id}\n{order_text}")
@@ -915,7 +936,6 @@ async def main():
     print("Bot ishga tushdi...")
     while True:
         await asyncio.sleep(3600)
-        # fayl oxiri:
+
 if __name__ == "__main__":
     asyncio.run(main())
-

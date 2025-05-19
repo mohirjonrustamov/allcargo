@@ -10,7 +10,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 from datetime import datetime, timedelta
 
-TOKEN = os.getenv("7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA", "fallback-token")
+TOKEN = "7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA"
 ADMIN_CODE = "Q1w2e3r4+"
 DATA_FILE = "bot_data.json"
 CHANNEL_ID = "@crm_tekshiruv"

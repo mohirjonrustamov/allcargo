@@ -313,7 +313,7 @@ def generate_verification_code():
 # Start komandasi
 @router.message(Command("start"))
 async def start_handler(message: types.Message):
-    user_id = str(bookmark://message.from_user.id)
+    user_id = str(message.from_user.id)
     today = datetime.now().date().isoformat()
     users.add(user_id)
     if today not in daily_users:
@@ -440,7 +440,7 @@ async def ask_initial_question(user_id):
     else:
         registered_users[user_id] = user_data[user_id]["initial_answers"]
         save_data()
-        await bot.send_message(user_id, translations[lang)["welcome"], reply_markup=get_main_menu(lang))
+        await bot.send_message(user_id, translations[lang]["welcome"], reply_markup=get_main_menu(lang))
         user_data.pop(user_id)
 
 async def handle_initial_answer(message: types.Message):

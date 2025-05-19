@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: allcargo-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: WEBHOOK_SECRET
+        value: supersecret
+      - key: TOKEN
+        value: 7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA
+    plan: free

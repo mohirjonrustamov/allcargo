@@ -915,3 +915,7 @@ async def main():
     print("Bot ishga tushdi...")
     while True:
         await asyncio.sleep(3600)
+        # fayl oxiri:
+if __name__ == "__main__":
+    asyncio.run(main())
+

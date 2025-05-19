@@ -10,12 +10,12 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 from datetime import datetime, timedelta
 
-TOKEN = "7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA"
+TOKEN = os.getenv("7995355432:AAGkqyx83KT4YBZmTNSz3k69UD-rPq-OlKA", "fallback-token")
 ADMIN_CODE = "Q1w2e3r4+"
 DATA_FILE = "bot_data.json"
 CHANNEL_ID = "@crm_tekshiruv"
 WEBHOOK_PATH = "/webhook"
-WEBHOOK_SECRET = "supersecret"
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "fallback-secret")
 WEBHOOK_URL = f"https://allcargo.onrender.com{WEBHOOK_PATH}"
 
 bot = Bot(token=TOKEN, parse_mode="HTML")
@@ -907,7 +907,8 @@ async def main():
     
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 8080)))
+port = int(os.environ.get("PORT", 8080))
+site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
     print("Bot ishga tushdi...")

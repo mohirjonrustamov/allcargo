@@ -553,6 +553,7 @@ async def services_handler(message: types.Message):
     logger.info(f"Xizmatlar uchun til: {lang}")
     await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
 async def handle_service_selection(message: types.Message, user_id: str, lang: str):
+    logger.info(f"handle_service_selection uchun til: {lang}, tanlangan xizmat: {message.text}")
     service_options = [
         "🚛 Logistika", "🚛 Логистика", "🚛 Logistics",
         "🧾 Ruxsatnomalar va bojxona xizmatlari", "🧾 Разрешения и таможенные услуги", "🧾 Permits and Customs Services",
@@ -675,8 +676,14 @@ async def handle_service_selection(message: types.Message, user_id: str, lang: s
 • Organizing sample selection for certification"""
             }
         }
-        text_key = next((key for key in service_texts if message.text in key), None)
+        # Emoji asosida moslikni aniqlash
+        text_key = None
+        for key in service_texts:
+            if message.text.startswith(key.split()[0]):  # Emojiga asoslangan moslik
+                text_key = key
+                break
         if text_key:
+            logger.info(f"Xizmat tanlandi: {text_key}, til: {lang}")
             await message.answer(service_texts[text_key][lang], parse_mode="HTML", reply_markup=get_order_nav(lang))
             return True
     return False

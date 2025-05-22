@@ -10,15 +10,18 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 from datetime import datetime, timedelta
+from config import TOKEN, ADMIN_CODE, DATA_FILE, CHANNEL_ID, WEBHOOK_PATH, WEBHOOK_SECRET, WEBHOOK_URL, BITRIX_LEAD_URL
 
-TOKEN = os.getenv("TOKEN", "fallback-token")
-ADMIN_CODE = "Q1w2e3r4+"
-DATA_FILE = "bot_data.json"
-CHANNEL_ID = "@crm_tekshiruv"
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "fallback-secret")
-WEBHOOK_URL = f"https://allcargo.onrender.com{WEBHOOK_PATH}"
-BITRIX_LEAD_URL = "https://pbsimpex.bitrix24.ru/rest/56/8fmh9217sb9emy66/crm.lead.add.json"
+# Logging sozlamalari
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 bot = Bot(token=TOKEN, parse_mode="HTML")
 dp = Dispatcher()
@@ -34,7 +37,6 @@ admin_state = {}
 verification_codes = {}
 registered_users = {}
 user_orders = {}
-logger = logging.getLogger(__name__)
 
 # Ma'lumotlarni fayldan yuklash
 def load_data():
@@ -72,7 +74,7 @@ def save_data():
         logger.error(f"Ma'lumotlarni saqlashda xatolik: {e}")
 
 # Yuborish Bitrixga
-def send_lead_to_bitrix(name, phone, answers):
+def send_lead_to_bitrix(name, phone, answers, max_retries=3):
     comments = "\n".join([f"{q}: {a}" for q, a in answers.items()])
     payload = {
         "fields": {
@@ -82,12 +84,16 @@ def send_lead_to_bitrix(name, phone, answers):
             "COMMENTS": comments
         }
     }
-    try:
-        response = requests.post(BITRIX_LEAD_URL, json=payload)
-        return response.json()
-    except Exception as e:
-        logger.error(f"Bitrixga yuborishda xatolik: {e}")
-        return {"error": str(e)}
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(BITRIX_LEAD_URL, json=payload, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            logger.error(f"Bitrixga yuborishda xatolik (urinish {attempt + 1}/{max_retries}): {e}")
+            if attempt == max_retries - 1:
+                return {"error": str(e)}
+            asyncio.sleep(2 ** attempt)
 
 # Tarjimalar
 translations = {
@@ -95,7 +101,7 @@ translations = {
         "lang_name": "🇺🇿 O'zbekcha",
         "start": "🌐 Iltimos, tilni tanlang:",
         "welcome": "Assalomu alaykum! 👋\n\nSiz PBS IMPEX kompaniyasining rasmiy Telegram botidasiz. 🌍\n\nBiz yuk tashish va logistika xizmatlarini Markaziy Osiyo hamda xalqaro yo‘nalishlarda taqdim etamiz. ✈️🚛🚢🚂\n\n📦 Buyurtma berish yoki xizmatlar bilan tanishish uchun quyidagi menyudan foydalaning. 👇",
-        "menu": ["📦 Buyurtma berish", "📞 Operator", "🛠 Xizmatlar", "🌍 Tilni o‘zgartirish", "👨‍💼 Admin paneli", "👤 Foydalanuvchi profili"],
+        "menu": ["📦 Buyurtma berish", "📞 Operator", "🛠 Xizmatlar", "👤 Foydalanuvchi profili"],
         "profile_menu": ["👤 Mening ma'lumotlarim", "📋 Mening buyurtmalarim", "🏠 Bosh sahifa"],
         "services": "🛠 Xizmatlar",
         "admin_menu": ["📊 Statistika", "📢 Post", "🏠 Bosh sahifa"],
@@ -134,7 +140,7 @@ translations = {
         "lang_name": "🇷🇺 Русский",
         "start": "🌐 Пожалуйста, выберите язык:",
         "welcome": "Здравствуйте! 👋\n\nВы находитесь в официальном Telegram-боте компании PBS IMPEX. 🌍\n\nМы предоставляем услуги по перевозке и логистике в Центральной Азии и по всему миру. ✈️🚛🚢🚂\n\n📦 Для оформления заказа или получения информации воспользуйтесь меню ниже. 👇",
-        "menu": ["📦 Сделать заказ", "📞 Оператор", "🛠 Услуги", "🌍 Сменить язык", "👨‍💼 Админ-панель", "👤 Профиль пользователя"],
+        "menu": ["📦 Сделать заказ", "📞 Оператор", "🛠 Услуги", "👤 Профиль пользователя"],
         "profile_menu": ["👤 Моя информация", "📋 Мои заказы", "🏠 Главное меню"],
         "services": "🛠 Услуги",
         "admin_menu": ["📊 Статистика", "📢 Пост", "🏠 Главное меню"],
@@ -173,7 +179,7 @@ translations = {
         "lang_name": "🇬🇧 English",
         "start": "🌐 Please select a language:",
         "welcome": "Hello! 👋\n\nYou are in the official Telegram bot of PBS IMPEX. 🌍\n\nWe provide freight and logistics services in Central Asia and internationally. ✈️🚛🚢🚂\n\n📦 To place an order or view services, use the menu below. 👇",
-        "menu": ["📦 New Order", "📞 Contact Operator", "🛠 Services", "🌍 Change Language", "👨‍💼 Admin Panel", "👤 User Profile"],
+        "menu": ["📦 New Order", "📞 Contact Operator", "🛠 Services", "👤 User Profile"],
         "profile_menu": ["👤 My Info", "📋 My Orders", "🏠 Home"],
         "services": "🛠 Services",
         "admin_menu": ["📊 Statistics", "📢 Post", "🏠 Home"],
@@ -325,7 +331,22 @@ async def start_handler(message: types.Message):
         lang = user_lang.get(user_id, "uz")
         await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
     else:
+        user_data[user_id] = {"initial_step": 0, "initial_answers": {}}
         await message.answer(translations["uz"]["start"], reply_markup=get_language_menu())
+
+# Til o'zgartirish komandasi
+@router.message(Command("lang"))
+async def lang_handler(message: types.Message):
+    user_id = str(message.from_user.id)
+    await message.answer(translations["uz"]["start"], reply_markup=get_language_menu())
+
+# Admin paneli komandasi
+@router.message(Command("admin"))
+async def admin_handler(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    await message.answer(translations[lang]["admin_code_prompt"], reply_markup=get_order_nav(lang))
+    admin_state[user_id] = {"awaiting_code": True}
 
 # Til tanlash
 @router.message(F.text.in_(["🇺🇿 O'zbekcha", "🇷🇺 Русский", "🇬🇧 English"]))
@@ -424,19 +445,19 @@ async def handle_admin_menu(message: types.Message):
     elif message.text == translations[lang]["admin_menu"][2]:  # Bosh sahifa
         admin_state.pop(user_id, None)
         await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
-        
+
 # Dastlabki savollar va tasdiqlash
 async def ask_initial_question(user_id):
     lang = user_lang.get(user_id, "uz")
     step = user_data[user_id]["initial_step"]
     initial_questions = translations[lang]["initial_questions"]
     if step < len(initial_questions):
-        await bot.send_message(user_id, initial_questions[step], reply_markup=get_order_nav(lang))
+        await bot.send_message(user_id, initial_questions[step], reply_markup=None)  # Tugmalarni olib tashlash
     elif step == 2:
         code = generate_verification_code()
         verification_codes[user_id] = code
         phone = user_data[user_id]["initial_answers"][initial_questions[1]]
-        await bot.send_message(user_id, f"{translations[lang]['verification_code_sent']}\nKod (test uchun): {code}", reply_markup=get_order_nav(lang))
+        await bot.send_message(user_id, f"{translations[lang]['verification_code_sent']}\nKod (test uchun): {code}", reply_markup=None)
     else:
         registered_users[user_id] = user_data[user_id]["initial_answers"]
         save_data()
@@ -447,27 +468,18 @@ async def handle_initial_answer(message: types.Message):
     user_id = str(message.from_user.id)
     lang = user_lang.get(user_id, "uz")
     text = message.text
-    if text == translations[lang]["back"]:
-        if user_data[user_id]["initial_step"] > 0:
-            user_data[user_id]["initial_step"] -= 1
-            await ask_initial_question(user_id)
-        else:
-            user_data.pop(user_id, None)
-            await message.answer(translations[lang]["start"], reply_markup=get_language_menu())
-        return
-    if text == translations[lang]["home"]:
-        user_data.pop(user_id, None)
-        await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
-        return
     step = user_data[user_id]["initial_step"]
     initial_questions = translations[lang]["initial_questions"]
     if step == 1:  # Telefon raqami
-        cleaned_text = text.replace("+", "").replace(" ", "")
+        cleaned_text = text.replace("+", "").replace(" ", "").strip()
         if not cleaned_text.isdigit():
-            await message.answer(translations[lang]["error_phone"])
+            await message.answer(translations[lang]["error_phone"], reply_markup=None)
             return
         if len(cleaned_text) not in [9, 12]:
-            await message.answer(translations[lang]["error_phone_length"])
+            await message.answer(translations[lang]["error_phone_length"], reply_markup=None)
+            return
+        if len(cleaned_text) == 12 and not cleaned_text.startswith("998"):
+            await message.answer("❌ Telefon raqami +998 bilan boshlanishi kerak!", reply_markup=None)
             return
     if step < 2:
         user_data[user_id]["initial_answers"][initial_questions[step]] = text
@@ -480,38 +492,16 @@ async def handle_initial_answer(message: types.Message):
             await ask_initial_question(user_id)
             verification_codes.pop(user_id)
         else:
-            await message.answer(translations[lang]["verification_failed"])
+            await message.answer(translations[lang]["verification_failed"], reply_markup=None)
 
 # Asosiy handler
-@router.message(F.text)
-async def handle_language_and_menu(message: types.Message):
-    user_id = str(message.from_user.id)
-    lang = user_lang.get(user_id, "uz")
-    logger.info(f"Foydalanuvchi {user_id} yubordi: {message.text}")
-    today = datetime.now().date().isoformat()
-    if today not in daily_users:
-        daily_users[today] = set()
-    daily_users[today].add(user_id)
-    save_data()
-
-    if admin_state.get(user_id, {}).get("awaiting_post", False):
-        return
-
-    if user_id in user_data and "initial_step" in user_data[user_id]:
-        await handle_initial_answer(message)
-        return
-
-    if message.text == translations[lang]["menu"][3]:  # Tilni o‘zgartirish
-        await message.answer(translations[lang]["start"], reply_markup=get_language_menu())
-        return
-
+async def handle_menu_selection(message: types.Message, user_id: str, lang: str):
     if message.text == translations[lang]["home"]:  # "🏠 Bosh sahifa"
         admin_state.pop(user_id, None)
-        user_data.pop(user_id, None)  # Buyurtma jarayonini tozalash
+        user_data.pop(user_id, None)
         await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
-        return
-
-    if message.text == translations[lang]["menu"][0]:  # Buyurtma berish
+        return True
+    elif message.text == translations[lang]["menu"][0]:  # Buyurtma berish
         user_data[user_id] = {"step": 0, "answers": {}}
         if user_id in registered_users:
             info = registered_users[user_id]
@@ -520,8 +510,7 @@ async def handle_language_and_menu(message: types.Message):
             user_data[user_id]["answers"][initial_questions[1]] = info.get(initial_questions[1], "Noma'lum" if lang == "uz" else "Неизвестно" if lang == "ru" else "Unknown")
         await message.answer(translations[lang]["order_text"], reply_markup=get_order_nav(lang))
         await ask_question(user_id)
-        return
-
+        return True
     elif message.text == translations[lang]["menu"][1]:  # Operator
         operator_info_translations = {
             "uz": """<b>«PBS IMPEX» XK</b>
@@ -547,44 +536,34 @@ async def handle_language_and_menu(message: types.Message):
 🌐 Website: https://pbs-impex.uz/"""
         }
         await message.answer(operator_info_translations[lang], reply_markup=get_main_menu(lang), parse_mode="HTML")
-        return
-
+        return True
     elif message.text == translations[lang]["menu"][2]:  # Xizmatlar
         await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
-        return
-
-    elif message.text == translations[lang]["menu"][4]:  # "👨‍💼 Admin paneli"
-        await message.answer(translations[lang]["admin_code_prompt"], reply_markup=get_order_nav(lang))
-        admin_state[user_id] = {"awaiting_code": True}
-        return
-
-    elif message.text == translations[lang]["menu"][5]:  # "👤 Foydalanuvchi profili"
+        return True
+    elif message.text == translations[lang]["menu"][3]:  # Foydalanuvchi profili
         await message.answer("👤 Profil menyusi", reply_markup=get_profile_menu(lang))
-        return
+        return True
+    return False
 
-    # Xizmatlar bo‘limidagi tugmalar
+async def handle_service_selection(message: types.Message, user_id: str, lang: str):
     service_options = [
         "🚛 Logistika", "🚛 Логистика", "🚛 Logistics",
         "🧾 Ruxsatnomalar va bojxona xizmatlari", "🧾 Разрешения и таможенные услуги", "🧾 Permits and Customs Services",
         "🏢 Ma’muriyatchilik ishlari", "🏢 Административные услуги", "🏢 Administrative Services",
         "📄 Sertifikatsiya", "📄 Сертификация", "📄 Certification"
     ]
-
     if message.text == translations[lang]["back"]:  # "🔙 Orqaga"
-        # Xizmatlar bo‘limida bo‘lsa (get_order_nav klaviaturasi mavjud)
         if message.reply_markup == get_order_nav(lang):
             await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
-        # Buyurtma jarayonida bo‘lsa
         elif user_id in user_data and "step" in user_data[user_id]:
             await handle_order_answer(message)
-        # Aks holda bosh sahifaga
         else:
             await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
-        return
-
-    elif message.text in ["🚛 Logistika", "🚛 Логистика", "🚛 Logistics"]:
-        logistics_text = {
-            "uz": """✅ <b>Logistika xizmati</b>
+        return True
+    elif message.text in service_options:
+        service_texts = {
+            "🚛 Logistika": {
+                "uz": """✅ <b>Logistika xizmati</b>
 • Malakali maslahat berish
 • Transport vositalarining qulay kombinatsiyasi (avia, avto, temir yo‘l, suv) asosida optimal yo‘nalish ishlab chiqish
 • Xarajatlarni hisoblash
@@ -595,7 +574,7 @@ async def handle_language_and_menu(message: types.Message):
 • \"Eshikdan eshikgacha\" xizmati
 • Toshkent va O‘zbekiston bo‘ylab shaxsiy transportda yuk tashish (5 tonna/20 kub; 1.5 tonna/14 kub)
 • Texnik Iqtisodiy Asos shartlariga asosan yuk tashishni tashkil etish""",
-            "ru": """✅ <b>Логистические услуги</b>
+                "ru": """✅ <b>Логистические услуги</b>
 • Консультации от специалистов
 • Оптимальный маршрут с учетом различных видов транспорта (авиа, авто, жд, морской)
 • Расчет затрат
@@ -606,7 +585,7 @@ async def handle_language_and_menu(message: types.Message):
 • Услуга \"от двери до двери\"
 • Перевозки по Ташкенту и всей Узбекистану (5 тонн/20 куб; 1.5 тонн/14 куб)
 • Организация перевозок на основе ТЭО""",
-            "en": """✅ <b>Logistics Service</b>
+                "en": """✅ <b>Logistics Service</b>
 • Professional consulting
 • Optimal route planning using air, road, rail, and sea transport
 • Cost calculation
@@ -617,13 +596,9 @@ async def handle_language_and_menu(message: types.Message):
 • Door-to-door service
 • Local transport across Tashkent and Uzbekistan (5 ton/20 m³; 1.5 ton/14 m³)
 • Full logistics based on feasibility studies"""
-        }
-        await message.answer(logistics_text[lang], parse_mode="HTML", reply_markup=get_order_nav(lang))
-        return
-
-    elif message.text in ["🧾 Ruxsatnomalar va bojxona xizmatlari", "🧾 Разрешения и таможенные услуги", "🧾 Permits and Customs Services"]:
-        customs_text = {
-            "uz": """✅ <b>Ruxsatnomalar va bojxona xizmatlari</b>
+            },
+            "🧾 Ruxsatnomalar va bojxona xizmatlari": {
+                "uz": """✅ <b>Ruxsatnomalar va bojxona xizmatlari</b>
 • Tashqi savdo shartnomalarini tuzishda maslahat va ularni ro‘yxatdan o‘tkazish
 • TIF TN kodi asosida ekspert xulosasi va bojxona moslashtirish
 • Import/eksportdagi xarajatlar bo‘yicha ma’lumot
@@ -631,7 +606,7 @@ async def handle_language_and_menu(message: types.Message):
 • Bojxona xizmatlarini bojxona skladigacha yoki kerakli manzilgacha yetkazish
 • Skladga qo‘yish va nazorat qilish
 • Bojxona deklaratsiyasini tayyorlash""",
-            "ru": """✅ <b>Разрешения и таможенные услуги</b>
+                "ru": """✅ <b>Разрешения и таможенные услуги</b>
 • Консультации по внешнеторговым контрактам и их регистрация
 • Экспертное заключение по ТН ВЭД и согласование с таможней
 • Информация по затратам на импорт/экспорт
@@ -639,7 +614,7 @@ async def handle_language_and_menu(message: types.Message):
 • Таможенные услуги до склада или по нужному адресу
 • Хранение и контроль на складе
 • Подготовка таможенной декларации""",
-            "en": """✅ <b>Permits and Customs Services</b>
+                "en": """✅ <b>Permits and Customs Services</b>
 • Consulting on foreign trade contracts and registration
 • Expert opinion based on HS Code and customs approval
 • Info on import/export costs
@@ -647,13 +622,9 @@ async def handle_language_and_menu(message: types.Message):
 • Customs service delivery to warehouse or specified address
 • Storage and monitoring
 • Preparation of customs declaration"""
-        }
-        await message.answer(customs_text[lang], parse_mode="HTML", reply_markup=get_order_nav(lang))
-        return
-
-    elif message.text in ["🏢 Ma’muriyatchilik ishlari", "🏢 Административные услуги", "🏢 Administrative Services"]:
-        admin_text = {
-            "uz": """✅ <b>Ma’muriyatchilik ishlari</b>
+            },
+            "🏢 Ma’muriyatchilik ishlari": {
+                "uz": """✅ <b>Ma’muriyatchilik ishlari</b>
 • Mijozlarimiz tovariga buyurtma va talabnomalarni joylashtirish
 • Tovarni sotib olish shartnomalarini muvofiqlashtirish
 • Yetkazib berish muddati, narxi va xarakteristikasini moslashtirish
@@ -661,15 +632,15 @@ async def handle_language_and_menu(message: types.Message):
 • Invoyslarni olish va tekshirish
 • \"Back orders\" holatini nazorat qilish
 • Buyurtmalarni yig‘ish va jo‘natish""",
-            "ru": """✅ <b>Административные услуги</b>
+                "ru": """✅ <b>Административные услуги</b>
 • Размещение заказов и заявок на товары клиентов
 • Согласование контрактов на закупку
 • Согласование сроков, цены и характеристик поставки
-acomplex• Согласование товарных и транспортных документов
+• Согласование товарных и транспортных документов
 • Получение и проверка инвойсов
 • Контроль \"Back orders\"
 • Сбор и отправка заказов""",
-            "en": """✅ <b>Administrative Services</b>
+                "en": """✅ <b>Administrative Services</b>
 • Placing orders and requests for client goods
 • Coordinating purchase contracts
 • Adjusting delivery time, price, and specifications
@@ -677,35 +648,59 @@ acomplex• Согласование товарных и транспортны�
 • Receiving and verifying invoices
 • Controlling \"Back orders\"
 • Collecting and dispatching orders"""
-        }
-        await message.answer(admin_text[lang], parse_mode="HTML", reply_markup=get_order_nav(lang))
-        return
-
-    elif message.text in ["📄 Sertifikatsiya", "📄 Сертификация", "📄 Certification"]:
-        cert_text = {
-            "uz": """✅ <b>Sertifikatsiya</b>
+            },
+            "📄 Sertifikatsiya": {
+                "uz": """✅ <b>Sertifikatsiya</b>
 • Tovar uchun har xil sertifikatlarni olish (kerak bo‘lganda)
 • Akkreditatsiyaga ega laboratoriyalardan sinov protokollarini va xulosalarni olish
 • Yukni olib kirish yoki olib chiqish uchun kerakli ruxsat xatlarini olish
 • O‘lchash vositalarini metrologik attestatsiyadan o‘tkazish
 • Tovarning soni va sifati uchun ekspertiza va inspeksiya
 • Sertifikatsiya uchun namunalarni tanlab olishni tashkillashtirish""",
-            "ru": """✅ <b>Сертификация</b>
+                "ru": """✅ <b>Сертификация</b>
 • Получение различных сертификатов для товаров (при необходимости)
 • Получение протоколов испытаний и заключений из аккредитованных лабораторий
-•<Query id: 0x7fb7b6e0c0d0> Получение разрешений на ввоз или вывоз груза
+• Получение разрешений на ввоз или вывоз груза
 • Метрологическая аттестация измерительных средств
 • Экспертиза и инспекция количества и качества товара
 • Организация отбора образцов для сертификации""",
-            "en": """✅ <b>Certification</b>
+                "en": """✅ <b>Certification</b>
 • Obtaining various product certificates (if needed)
 • Getting test reports and conclusions from accredited laboratories
 • Obtaining permits for cargo import or export
 • Metrological certification of measuring instruments
 • Product quantity and quality inspection
 • Organizing sample selection for certification"""
+            }
         }
-        await message.answer(cert_text[lang], parse_mode="HTML", reply_markup=get_order_nav(lang))
+        text_key = next((key for key in service_texts if message.text in key), None)
+        if text_key:
+            await message.answer(service_texts[text_key][lang], parse_mode="HTML", reply_markup=get_order_nav(lang))
+            return True
+    return False
+
+@router.message(F.text)
+async def handle_language_and_menu(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    logger.info(f"Foydalanuvchi {user_id} yubordi: {message.text}")
+    today = datetime.now().date().isoformat()
+    if today not in daily_users:
+        daily_users[today] = set()
+    daily_users[today].add(user_id)
+    save_data()
+
+    if admin_state.get(user_id, {}).get("awaiting_post", False):
+        return
+
+    if user_id in user_data and "initial_step" in user_data[user_id]:
+        await handle_initial_answer(message)
+        return
+
+    if await handle_menu_selection(message, user_id, lang):
+        return
+
+    if await handle_service_selection(message, user_id, lang):
         return
 
     if user_id in user_data and "step" in user_data[user_id]:
@@ -911,7 +906,6 @@ async def reset_daily_users():
 async def on_startup(app: web.Application):
     load_data()
     dp.include_router(router)
-    logging.basicConfig(level=logging.INFO)
     asyncio.create_task(reset_daily_users())
     await bot.set_webhook(WEBHOOK_URL, secret_token=WEBHOOK_SECRET)
 

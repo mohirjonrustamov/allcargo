@@ -1,25 +1,9 @@
-def get_services_menu(lang):
-    services_menu = {
-        "uz": [
-            [KeyboardButton(text="🚛 Logistika")],
-            [KeyboardButton(text="🧾 Ruxsatnomalar va bojxona xizmatlari")],
-            [KeyboardButton(text="🏢 Ma’muriyatchilik ishlari")],
-            [KeyboardButton(text="📄 Sertifikatsiya")],
-            [KeyboardButton(text=translations[lang]["home"])]
-        ],
-        "ru": [
-            [KeyboardButton(text="🚛 Логистика")],
-            [KeyboardButton(text="🧾 Разрешения и таможенные услуги")],
-            [KeyboardButton(text="🏢 Административные услуги")],
-            [KeyboardButton(text="📄 Сертификация")],
-            [KeyboardButton(text=translations[lang]["home"])]
-        ],
-        "en": [
-            [KeyboardButton(text="🚛 Logistics")],
-            [KeyboardButton(text="🧾 Permits and Customs Services")],
-            [KeyboardButton(text="🏢 Administrative Services")],
-            [KeyboardButton(text="📄 Certification")],
-            [KeyboardButton(text=translations[lang]["home"])]
-        ]
-    }
-    return ReplyKeyboardMarkup(keyboard=services_menu[lang], resize_keyboard=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)

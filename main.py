@@ -553,12 +553,8 @@ async def handle_service_selection(message: types.Message, user_id: str, lang: s
         "📄 Sertifikatsiya", "📄 Сертификация", "📄 Certification"
     ]
     if message.text == translations[lang]["back"]:  # "🔙 Orqaga"
-        if message.reply_markup == get_order_nav(lang):
-            await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
-        elif user_id in user_data and "step" in user_data[user_id]:
-            await handle_order_answer(message)
-        else:
-            await message.answer(translations[lang]["welcome"], reply_markup=get_main_menu(lang))
+        # Har doim xizmatlar menyusiga qaytish
+        await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
         return True
     elif message.text in service_options:
         service_texts = {

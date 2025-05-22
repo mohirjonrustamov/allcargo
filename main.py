@@ -354,6 +354,7 @@ async def select_language(message: types.Message):
     user_id = str(message.from_user.id)
     lang = "uz" if message.text == "🇺🇿 O'zbekcha" else "ru" if message.text == "🇷🇺 Русский" else "en"
     user_lang[user_id] = lang
+    logger.info(f"Foydalanuvchi {user_id} uchun til o'zgartirildi: {lang}")
     if user_id not in registered_users:
         user_data[user_id] = {"initial_step": 0, "initial_answers": {}}
         await ask_initial_question(user_id)
@@ -545,6 +546,12 @@ async def handle_menu_selection(message: types.Message, user_id: str, lang: str)
         return True
     return False
 
+@router.message(F.text.in_(["🛠 Xizmatlar", "🛠 Услуги", "🛠 Services"]))
+async def services_handler(message: types.Message):
+    user_id = str(message.from_user.id)
+    lang = user_lang.get(user_id, "uz")
+    logger.info(f"Xizmatlar uchun til: {lang}")
+    await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
 async def handle_service_selection(message: types.Message, user_id: str, lang: str):
     service_options = [
         "🚛 Logistika", "🚛 Логистика", "🚛 Logistics",
@@ -553,7 +560,6 @@ async def handle_service_selection(message: types.Message, user_id: str, lang: s
         "📄 Sertifikatsiya", "📄 Сертификация", "📄 Certification"
     ]
     if message.text == translations[lang]["back"]:  # "🔙 Orqaga"
-        # Har doim xizmatlar menyusiga qaytish
         await message.answer(translations[lang]["services"], reply_markup=get_services_menu(lang))
         return True
     elif message.text in service_options:
